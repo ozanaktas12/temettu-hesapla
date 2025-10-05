@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Temettü Karşılaştırma Aracı – Dark/Light + 3 Kolon</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Karşılaştırma Aracı</h1>
+    <div class="toolbar">
+      <button class="btn" id="themeBtn">🌙 Karanlık</button>
+      <button class="btn" id="saveBtn">Kaydet</button>
+      <button class="btn" id="exportBtn">Dışa Aktar (JSON)</button>
+      <label class="btn">İçe Aktar<input type="file" id="importFile" accept="application/json" style="display:none"></label>
+    </div>
+  </header>
+
+  <div class="row" style="margin-top:10px">
+    <!-- HİSSE -->
+    <section class="box">
+      <h2>Hisse <span id="tickerView" class="muted"></span></h2>
+      <div class="grid g3">
+        <label class="small">Ticker <input id="ticker" type="text" value="BIMAS"></label>
+        <label class="small">Başlangıç Tarihi <input id="eqStartDate" type="date" value="2021-01-01"></label>
+        <label class="small">Başlangıç Fiyatı <input id="eqStartPrice" type="number" step="0.0001" value="30.5"></label>
+        <label class="small">Toplam Alım (₺) <input id="eqInitialCash" type="number" step="0.01" value="30000"></label>
+        <label class="small">Son Tarih <input id="eqEndDate" type="date"></label>
+        <label class="small">Son Fiyat <input id="eqEndPrice" type="number" step="0.0001" value="356"></label>
+      </div>
+
+      <div class="sep"></div>
+      <div class="actions">
+        <strong>Olaylar:</strong>
+        <button class="btn" data-add="dividend">+ Temettü</button>
+        <button class="btn" data-add="bonus">+ Bedelsiz</button>
+      </div>
+      <table id="eventsTbl">
+        <thead><tr><th>Tür</th><th>Tarih</th><th>Değer</th><th style="width:60px"></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="muted" style="font-size:12px;margin-top:6px">
+        Not: Aynı gün için işlem sırası <b>Bedelsiz → Temettü</b>. Bedelsiz % girilir (ör. 100 = %100).
+      </div>
+    </section>
+
+    <!-- BENCH (sıra hisse ile aynı) -->
+    <section class="box">
+      <h2>Altın/BTC/Dolar</h2>
+      <div class="grid g3">
+        <label class="small">Varlık Adı <input id="bName" type="text" value="BTC"></label>
+        <label class="small">Başlangıç Tarihi <input id="bStartDate" type="date" value="2021-01-01"></label>
+        <label class="small">Başlangıç Fiyatı <input id="bStartPrice" type="number" step="0.0001" value="300000"></label>
+        <label class="small">Toplam Alım (₺) <span class="muted">(opsiyonel)</span>
+          <input id="bInitialCash" type="number" step="0.01" placeholder="boş: hisse ile aynı">
+        </label>
+        <label class="small">Son Tarih <input id="bEndDate" type="date"></label>
+        <label class="small">Son Fiyat <input id="bEndPrice" type="number" step="0.0001" value="1230000"></label>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:6px">Boş bırakılırsa başlangıç tutarı hisseyle aynıdır.</div>
+    </section>
+  </div>
+
+  <!-- ÇIKTILAR -->
+  <section class="out">
+    <div id="headline" class="headline">Özet</div>
+
+    <div class="cols3">
+      <!-- SOL: Hisse -->
+      <div class="col">
+        <div class="num" id="eqEndVal">-</div>
+        <div class="num" id="eqPayVal">-</div>
+        <div class="num" id="eqDivs">-</div>
+        <div class="num percent" id="eqRet">-</div>
+        <div class="num" id="eqCagr">-</div>
+        <div class="flow" id="eqFlow">-</div>
+      </div>
+
+      <!-- ORTA: Etiketler -->
+      <div class="labcol">
+        <div class="lab">Toplam Ulaşılan Miktar</div>
+        <div class="sub">Pay Toplamı</div>
+        <div class="sub">Toplam Dağıtılan Temettü</div>
+        <div class="lab">Artış</div>
+        <div class="lab">Yıllık Ort. Bileşik Getiri</div>
+        <div class="lab">Ulaşılan Adet</div>
+      </div>
+
+      <!-- SAĞ: Benchmark -->
+      <div class="col" style="text-align:right">
+        <div class="num" id="bEndVal">-</div>
+        <div class="num" id="bPayVal">-</div>
+        <div class="num" id="bDivs">-</div>
+        <div class="num percent" id="bRet">-</div>
+        <div class="num" id="bCagr">-</div>
+        <div class="flow" id="bFlow">-</div>
+      </div>
+    </div>
+
+    <details>
+      <summary class="mono" style="cursor:pointer">Detaylar (işlem günlüğü)</summary>
+      <div id="log" class="mono" style="margin-top:8px;max-height:240px;overflow:auto;white-space:pre-line"></div>
+    </details>
+
+    <div style="margin-top:12px">
+      <h3 style="margin:0 0 6px;font-size:15px">Sosyal Medya Metni (otomatik)</h3>
+      <textarea id="social" rows="5" style="width:100%"></textarea>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const $  = s=>document.querySelector(s);
+  const $$ = s=>Array.from(document.querySelectorAll(s));
+  const todayISO = ()=>new Date().toISOString().slice(0,10);
+  $('#eqEndDate').value = todayISO();
+  $('#bEndDate').value  = todayISO();
+
+  // Theme toggle
+  const themeBtn = $('#themeBtn');
+  let dark = false;
+  themeBtn.addEventListener('click', ()=>{
+    dark = !dark;
+    document.body.setAttribute('data-theme', dark?'dark':'');
+    themeBtn.textContent = dark ? '☀️ Aydınlık' : '🌙 Karanlık';
+  });
+
+  const state = {
+    equity:{
+      ticker: $('#ticker').value,
+      startDate: $('#eqStartDate').value,
+      startPrice: +$('#eqStartPrice').value,
+      initialCash: +$('#eqInitialCash').value,
+      endDate: $('#eqEndDate').value,
+      endPrice: +$('#eqEndPrice').value,
+      events:[
+        {id:uid(), kind:'dividend', date:'2022-04-01', netPerShare:0.65},
+        {id:uid(), kind:'dividend', date:'2023-04-10', netPerShare:1.45},
+        {id:uid(), kind:'bonus',    date:'2024-08-20', bonusPct:100},
+      ],
+    },
+    bench:{
+      name: $('#bName').value,
+      startDate: $('#bStartDate').value,
+      startPrice: +$('#bStartPrice').value,
+      endDate: $('#bEndDate').value,
+      endPrice: +$('#bEndPrice').value,
+      initialCashOpt: '' // boş = equity.initialCash
+    }
+  };
+
+  // inputs
+  $('#ticker').addEventListener('input', e=>{state.equity.ticker=e.target.value.toUpperCase(); $('#tickerView').textContent=state.equity.ticker; compute();});
+  $('#eqStartDate').addEventListener('change', e=>{state.equity.startDate=e.target.value; compute();});
+  $('#eqStartPrice').addEventListener('input', e=>{state.equity.startPrice=+e.target.value||0; compute();});
+  $('#eqInitialCash').addEventListener('input', e=>{state.equity.initialCash=+e.target.value||0; compute();});
+  $('#eqEndDate').addEventListener('change', e=>{state.equity.endDate=e.target.value; compute();});
+  $('#eqEndPrice').addEventListener('input', e=>{state.equity.endPrice=+e.target.value||0; compute();});
+
+  $('#bName').addEventListener('input', e=>{state.bench.name=e.target.value; compute();});
+  $('#bStartDate').addEventListener('change', e=>{state.bench.startDate=e.target.value; compute();});
+  $('#bStartPrice').addEventListener('input', e=>{state.bench.startPrice=+e.target.value||0; compute();});
+  $('#bInitialCash').addEventListener('input', e=>{state.bench.initialCashOpt = e.target.value===''? '' : +e.target.value; compute();});
+  $('#bEndDate').addEventListener('change', e=>{state.bench.endDate=e.target.value; compute();});
+  $('#bEndPrice').addEventListener('input', e=>{state.bench.endPrice=+e.target.value||0; compute();});
+
+  // olay ekleme
+  $$('[data-add]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const kind = btn.getAttribute('data-add');
+      const base = {id:uid(), date: todayISO()};
+      const ev = (kind==='dividend') ? {...base, kind:'dividend', netPerShare:0.5}
+                                     : {...base, kind:'bonus', bonusPct:10};
+      state.equity.events.push(ev);
+      renderEvents(); compute();
+    });
+  });
+
+  function renderEvents(){
+    const tbody = $('#eventsTbl tbody');
+    tbody.innerHTML = '';
+    for(const ev of sortEvents(state.equity.events)){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><span class="chip">${ev.kind==='dividend'?'Temettü':'Bedelsiz'}</span></td>
+        <td><input type="date" value="${ev.date}" data-k="date" class="mono"></td>
+        <td>${valueCell(ev)}</td>
+        <td style="text-align:right"><button class="btn" data-del>Sil</button></td>`;
+      tr.querySelector('[data-k="date"]').addEventListener('change', e=>{ev.date=e.target.value; compute();});
+      const vc = tr.querySelector('[data-k="value"]');
+      vc.addEventListener('input', e=>{ setValue(ev, e.target.value); compute(); });
+      tr.querySelector('[data-del]').addEventListener('click', ()=>{state.equity.events = state.equity.events.filter(x=>x!==ev); renderEvents(); compute();});
+      tbody.appendChild(tr);
+    }
+  }
+  function valueCell(ev){
+    if(ev.kind==='dividend')
+      return `<input type="number" step="0.0001" data-k="value" class="mono" value="${ev.netPerShare??0}">`;
+    return `<div style="display:flex;align-items:center;gap:6px">
+              <input type="number" step="0.01" data-k="value" class="mono" value="${ev.bonusPct??0}" style="width:120px">
+              <span class="muted">%</span>
+            </div>`;
+  }
+  function setValue(ev, raw){
+    const v = parseFloat(raw||0);
+    if(ev.kind==='dividend') ev.netPerShare = v; else ev.bonusPct = v;
+  }
+
+  function compute(){
+    $('#tickerView').textContent = state.equity.ticker || '';
+    const rEq = computeEquity(state.equity);
+    const initBench = state.bench.initialCashOpt === '' ? state.equity.initialCash : +state.bench.initialCashOpt;
+    const rB = computeBenchmark(state.bench, initBench);
+
+    // başlık (iki yönlü)
+    let headline;
+    if (rEq.endingValue >= rB.endingValue){
+      const diff = rEq.endingValue / (rB.endingValue || 1) - 1;
+      headline = `${state.equity.ticker || 'Hisse'} ör. ${state.bench.name}’den ${fmtPct(diff)} daha fazla kazandırdı.`;
+    }else{
+      const diff = rB.endingValue / (rEq.endingValue || 1) - 1;
+      headline = `${state.bench.name} ör. ${state.equity.ticker || 'hisse'}’ye göre ${fmtPct(diff)} daha fazla kazandırdı.`;
+    }
+    $('#headline').textContent = headline;
+
+    // HİSSE: toplam (pay+nakit), pay toplamı (sadece pay * son fiyat), temettü
+    $('#eqEndVal').textContent = fmtTL0(rEq.endingValue);
+    $('#eqPayVal').textContent = fmtTL0(rEq.payMarketValue);
+    $('#eqDivs').textContent   = fmtTL2(rEq.totalDividends);
+    $('#eqRet').textContent    = fmtPct(rEq.returnPct);
+    $('#eqCagr').textContent   = fmtPct(rEq.cagr);
+    $('#eqFlow').textContent   = `${fmtNum(rEq.startShares,4)} Hisse → ${fmtNum(rEq.shares,4)} Hisse`;
+
+    // BENCH: ulaşılan miktar ve pay toplamı aynı (temettü yok)
+    $('#bEndVal').textContent = fmtTL0(rB.endingValue);
+    $('#bPayVal').textContent = fmtTL0(rB.endingValue);
+    $('#bDivs').textContent   = '—';
+    const yearsB = Math.max(1/365.25, daysBetween(state.bench.startDate, state.bench.endDate)/365.25);
+    $('#bRet').textContent    = fmtPct(rB.returnPct);
+    $('#bCagr').textContent   = fmtPct(Math.pow(1+rB.returnPct, 1/yearsB)-1);
+    $('#bFlow').textContent   = `1 ${state.bench.name} → 1 ${state.bench.name}`;
+
+    $('#log').textContent = rEq.log.join('\n');
+    $('#social').value =
+`${headline}
+
+Toplam: ${fmtTL0(rEq.endingValue)}
+Pay Toplamı: ${fmtTL0(rEq.payMarketValue)}
+Temettü: ${fmtTL2(rEq.totalDividends)}
+CAGR: ${fmtPct(rEq.cagr)}
+Başlangıç: ${state.equity.startDate} – Bitiş: ${state.equity.endDate}`;
+  }
+
+  function computeEquity(input){
+    const log = [];
+    const buyable = (cash, price)=> price>0 ? cash/price : 0; // kesirli lot
+    const startShares = buyable(input.initialCash, input.startPrice);
+    let shares = startShares;
+    let cash   = input.initialCash - shares*input.startPrice;
+    let totalDividends = 0;
+    log.push(`BAŞLANGIÇ: ${fmtNum(shares,4)} pay @ ${fmtTL2(input.startPrice)} | Nakit: ${fmtTL2(cash)}`);
+
+    const events = sortEvents(input.events);
+    for(const e of events){
+      if(e.kind==='bonus'){
+        const r = (e.bonusPct||0)/100;
+        shares = shares * (1 + r);
+        log.push(`${e.date} | Bedelsiz %${(e.bonusPct||0).toFixed(2)} ⇒ Pay: ${fmtNum(shares,4)}`);
+      } else if(e.kind==='dividend'){
+        const div = shares * (e.netPerShare||0);
+        totalDividends += div; cash += div;
+        log.push(`${e.date} | Temettü ${fmtTL2(e.netPerShare||0)}/pay ⇒ Tahsil: ${fmtTL2(div)} | Nakit: ${fmtTL2(cash)}`);
+      }
+    }
+
+    const payMarketValue = shares * input.endPrice;     // Pay Toplamı (TL)
+    const endingValue = payMarketValue + cash;          // Toplam Ulaşılan Miktar
+    const ret = endingValue / input.initialCash - 1;
+    const years = Math.max(1/365.25, daysBetween(input.startDate, input.endDate)/365.25);
+    const cagr = Math.pow(endingValue / input.initialCash, 1/years) - 1;
+    log.push(`BİTİŞ: Pay: ${fmtNum(shares,4)} | Fiyat: ${fmtTL2(input.endPrice)} | Nakit: ${fmtTL2(cash)} | Değer: ${fmtTL2(endingValue)}`);
+    return {endingValue,payMarketValue,totalDividends,shares,startShares,cash,log,cagr,returnPct:ret};
+  }
+
+  function computeBenchmark(b, initialCash){
+    const units = (b.startPrice>0)? initialCash / b.startPrice : 0;
+    const endingValue = units * b.endPrice;
+    const returnPct = (initialCash>0)? (endingValue/initialCash - 1) : 0;
+    return {endingValue, units, returnPct};
+  }
+
+  function sortEvents(arr){
+    const pr = {bonus:0, dividend:1}; // aynı gün: Bedelsiz → Temettü
+    return [...arr].sort((a,b)=>{
+      const da = new Date(a.date).getTime(), db = new Date(b.date).getTime();
+      if(da!==db) return da-db; return pr[a.kind]-pr[b.kind];
+    });
+  }
+
+  // format
+  function fmtTL0(v){return isFinite(v)? v.toLocaleString('tr-TR',{style:'currency',currency:'TRY',maximumFractionDigits:0}):'-'}
+  function fmtTL2(v){return isFinite(v)? v.toLocaleString('tr-TR',{style:'currency',currency:'TRY',maximumFractionDigits:2}):'-'}
+  function fmtPct(v){return isFinite(v)? (v*100).toFixed(1).replace('-0.0','0.0')+'%':'-'}
+  function fmtNum(v,f=2){return isFinite(v)? v.toLocaleString('tr-TR',{maximumFractionDigits:f}):'-'}
+  function daysBetween(a,b){const d1=new Date(a).getTime(), d2=new Date(b).getTime(); return Math.abs(d2-d1)/(1000*60*60*24)}
+  function uid(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
+
+  // storage
+  $('#saveBtn').addEventListener('click', ()=>{
+    localStorage.setItem('temettu-ui-eq', JSON.stringify(state.equity));
+    localStorage.setItem('temettu-ui-bench', JSON.stringify(state.bench));
+    alert('Kaydedildi.');
+  });
+  $('#exportBtn').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify({eq:state.equity, bench:state.bench}, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url; a.download=`temettu-${state.equity.ticker}-${todayISO()}.json`; a.click(); URL.revokeObjectURL(url);
+  });
+  $('#importFile').addEventListener('change', (e)=>{
+    const f = e.target.files?.[0]; if(!f) return; const r = new FileReader();
+    r.onload = ()=>{
+      try{
+        const obj = JSON.parse(String(r.result));
+        if(obj.eq) state.equity = obj.eq;
+        if(obj.bench) state.bench = obj.bench;
+        syncInputs(); renderEvents(); compute();
+      }catch(err){ alert('JSON okunamadı'); }
+    };
+    r.readAsText(f);
+  });
+
+  function syncInputs(){
+    $('#ticker').value=state.equity.ticker; $('#tickerView').textContent=state.equity.ticker;
+    $('#eqStartDate').value=state.equity.startDate; $('#eqStartPrice').value=state.equity.startPrice;
+    $('#eqInitialCash').value=state.equity.initialCash; $('#eqEndDate').value=state.equity.endDate; $('#eqEndPrice').value=state.equity.endPrice;
+    $('#bName').value=state.bench.name; $('#bStartDate').value=state.bench.startDate; $('#bStartPrice').value=state.bench.startPrice;
+    $('#bEndDate').value=state.bench.endDate; $('#bEndPrice').value=state.bench.endPrice;
+    $('#bInitialCash').value=(state.bench.initialCashOpt==='')?'':state.bench.initialCashOpt;
+  }
+
+  renderEvents(); compute();
+})();
+</script>
+</body>
+</html>
